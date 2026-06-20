@@ -3,12 +3,13 @@
 import React, { useState, useEffect, useRef } from "react";
 
 export default function ImageOptimizer() {
-  const [originalFile, setOriginalFile] = useState<File | null>(null);
   const [originalUrl, setOriginalUrl] = useState<string>("");
   const [modifiedUrl, setModifiedUrl] = useState<string>("");
   
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
+  const [originalDimensions, setOriginalDimensions] = useState({ width: 0, height: 0 });
   const [quality, setQuality] = useState<number>(80);
+  const [bitDepth, setBitDepth] = useState<number>(24);
   const [comparePos, setComparePos] = useState<number>(50);
   
   const [sizes, setSizes] = useState({ original: 0, modified: 0 });
@@ -19,7 +20,6 @@ export default function ImageOptimizer() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    setOriginalFile(file);
     setSizes((prev) => ({ ...prev, original: file.size }));
     
     const url = URL.createObjectURL(file);
@@ -28,6 +28,7 @@ export default function ImageOptimizer() {
     const img = new Image();
     img.onload = () => {
       setDimensions({ width: img.width, height: img.height });
+      setOriginalDimensions({ width: img.width, height: img.height });
     };
     img.src = url;
   };
@@ -53,6 +54,31 @@ export default function ImageOptimizer() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
         ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
         
+        // --- Reducción de profundidad de bits ---
+        if (bitDepth !== 24) {
+          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          const data = imageData.data;
+          
+          if (bitDepth === 1) {
+             // 1 bit: Blanco y negro (Thresholding)
+             for (let i = 0; i < data.length; i += 4) {
+               const avg = (data[i] + data[i+1] + data[i+2]) / 3;
+               const val = avg > 127 ? 255 : 0;
+               data[i] = val;
+               data[i+1] = val;
+               data[i+2] = val;
+             }
+          } else if (bitDepth === 8) {
+             // 8 bits: Paleta de 256 colores (3 bits R, 3 bits G, 2 bits B)
+             for (let i = 0; i < data.length; i += 4) {
+               data[i] = Math.round(data[i] / 36.42) * 36.42;       // 7 steps
+               data[i+1] = Math.round(data[i+1] / 36.42) * 36.42;   // 7 steps
+               data[i+2] = Math.round(data[i+2] / 85) * 85;         // 3 steps
+             }
+          }
+          ctx.putImageData(imageData, 0, 0);
+        }
+        
         // Comprimir y generar blob
         canvas.toBlob(
           (blob) => {
@@ -67,7 +93,7 @@ export default function ImageOptimizer() {
       }
     };
     img.src = originalUrl;
-  }, [originalUrl, dimensions, quality]);
+  }, [originalUrl, dimensions, quality, bitDepth]);
 
   // Utilidad para formatear bytes
   const formatBytes = (bytes: number) => {
@@ -107,6 +133,18 @@ export default function ImageOptimizer() {
                 <div className="space-y-4">
                   <div>
                     <label className="flex justify-between text-sm mb-1">
+                      <span>Resolución (Muestreo)</span>
+                    </label>
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      <button onClick={() => setDimensions({ width: originalDimensions.width, height: originalDimensions.height })} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">Original</button>
+                      <button onClick={() => setDimensions({ width: 100, height: 100 })} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">100x100</button>
+                      <button onClick={() => setDimensions({ width: 500, height: 500 })} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">500x500</button>
+                      <button onClick={() => setDimensions({ width: 1000, height: 1000 })} className="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs">1000x1000</button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="flex justify-between text-sm mb-1">
                       <span>Ancho (px)</span>
                       <span className="text-blue-400">{dimensions.width}</span>
                     </label>
@@ -133,6 +171,21 @@ export default function ImageOptimizer() {
                       onChange={(e) => setDimensions({ ...dimensions, height: Number(e.target.value) })}
                       className="w-full accent-blue-500"
                     />
+                  </div>
+
+                  <div>
+                    <label className="flex justify-between text-sm mb-1">
+                      <span>Profundidad de Bits</span>
+                    </label>
+                    <select
+                      value={bitDepth}
+                      onChange={(e) => setBitDepth(Number(e.target.value))}
+                      className="w-full bg-gray-700 border border-gray-600 rounded-md py-1 px-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value={24}>24 bits (True Color)</option>
+                      <option value={8}>8 bits (256 Colores)</option>
+                      <option value={1}>1 bit (Blanco y Negro)</option>
+                    </select>
                   </div>
 
                   <div>
